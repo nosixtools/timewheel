@@ -150,6 +150,10 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		task := item.Value.(*task)
 
 		if task.times == 0 {
+			next := item.Next()
+			l.Remove(item)
+			delete(tw.timer, task.key)
+			item = next
 			continue
 		}
 
