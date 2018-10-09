@@ -1,8 +1,8 @@
 package timewheel
 
 import (
-	"time"
 	"container/list"
+	"time"
 )
 
 type TimeWheel struct {
