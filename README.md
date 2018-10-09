@@ -17,7 +17,7 @@ go get -u github.com/nosixtools/timewheel
 
 ```
 package main
-g
+
 import (
 	"fmt"
 	"github.com/nosixtools/timewheel"
