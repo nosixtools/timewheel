@@ -6,7 +6,7 @@ import (
 )
 
 // 时间轮结构体
-type timeWheel struct {
+type TimeWheel struct {
 	interval          time.Duration       //槽位时间单位
 	ticker            *time.Ticker        //
 	slots             []*list.List        //时间轮盘
@@ -35,11 +35,11 @@ type task struct {
 }
 
 // New 创建时间轮
-func New(interval time.Duration, slotNum int) *timeWheel {
+func New(interval time.Duration, slotNum int) *TimeWheel {
 	if interval <= 0 || slotNum <= 0 {
 		return nil
 	}
-	tw := &timeWheel{
+	tw := &TimeWheel{
 		interval:          interval,
 		slots:             make([]*list.List, slotNum),
 		timer:             make(map[interface{}]int),
@@ -56,17 +56,17 @@ func New(interval time.Duration, slotNum int) *timeWheel {
 }
 
 // Start 启动时间轮
-func (tw *timeWheel) Start() {
+func (tw *TimeWheel) Start() {
 	tw.ticker = time.NewTicker(tw.interval)
 	go tw.start()
 }
 
 // Stop 停止时间轮
-func (tw *timeWheel) Stop() {
+func (tw *TimeWheel) Stop() {
 	tw.stopChannel <- true
 }
 
-func (tw *timeWheel) start() {
+func (tw *TimeWheel) start() {
 	for {
 		select {
 		case <-tw.ticker.C:
@@ -82,14 +82,14 @@ func (tw *timeWheel) start() {
 	}
 }
 
-func (tw *timeWheel) AddTask(interval time.Duration, times int, key interface{}, data TaskData, job Job) {
+func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{}, data TaskData, job Job) {
 	if interval <= 0 || key == nil || job == nil {
 		return
 	}
 	tw.addTaskChannel <- task{interval: interval, times: times, key: key, taskData: data, job: job}
 }
 
-func (tw *timeWheel) RemoveTask(key interface{}) {
+func (tw *TimeWheel) RemoveTask(key interface{}) {
 	if key == nil {
 		return
 	}
@@ -97,14 +97,14 @@ func (tw *timeWheel) RemoveTask(key interface{}) {
 }
 
 // 时间轮初始化
-func (tw *timeWheel) init() {
+func (tw *TimeWheel) init() {
 	for i := 0; i < tw.slotNum-1; i++ {
 		tw.slots[i] = list.New()
 	}
 }
 
 //
-func (tw *timeWheel) tickHandler() {
+func (tw *TimeWheel) tickHandler() {
 	l := tw.slots[tw.currentPos]
 	tw.scanAddRunTask(l)
 	if tw.currentPos == tw.slotNum-1 {
@@ -115,7 +115,7 @@ func (tw *timeWheel) tickHandler() {
 }
 
 // 添加任务
-func (tw *timeWheel) addTask(task *task) {
+func (tw *TimeWheel) addTask(task *task) {
 	pos, circle := tw.getPositionAndCircle(task.interval)
 	task.circle = circle
 
@@ -125,7 +125,7 @@ func (tw *timeWheel) addTask(task *task) {
 }
 
 // 移除任务
-func (tw *timeWheel) removeTask(key interface{}) {
+func (tw *TimeWheel) removeTask(key interface{}) {
 	// 获取定时器所在的槽
 	position, ok := tw.timer[key]
 	if !ok {
@@ -145,7 +145,7 @@ func (tw *timeWheel) removeTask(key interface{}) {
 }
 
 // 扫描链表中任务并执行回调函数
-func (tw *timeWheel) scanAddRunTask(l *list.List) {
+func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 	for item := l.Front(); item != nil; {
 		task := item.Value.(*task)
 
@@ -176,7 +176,7 @@ func (tw *timeWheel) scanAddRunTask(l *list.List) {
 }
 
 // 获取定时器在槽中的位置, 时间轮需要转动的圈数
-func (tw *timeWheel) getPositionAndCircle(d time.Duration) (pos int, circle int) {
+func (tw *TimeWheel) getPositionAndCircle(d time.Duration) (pos int, circle int) {
 	delaySeconds := int(d.Seconds())
 	intervalSeconds := int(tw.interval.Seconds())
 	circle = int(delaySeconds / intervalSeconds / tw.slotNum)
