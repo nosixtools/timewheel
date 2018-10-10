@@ -98,7 +98,7 @@ func (tw *TimeWheel) RemoveTask(key interface{}) {
 
 // 时间轮初始化
 func (tw *TimeWheel) init() {
-	for i := 0; i < tw.slotNum-1; i++ {
+	for i := 0; i < tw.slotNum; i++ {
 		tw.slots[i] = list.New()
 	}
 }
@@ -146,6 +146,11 @@ func (tw *TimeWheel) removeTask(key interface{}) {
 
 // 扫描链表中任务并执行回调函数
 func (tw *TimeWheel) scanAddRunTask(l *list.List) {
+
+	if l == nil {
+		return
+	}
+
 	for item := l.Front(); item != nil; {
 		task := item.Value.(*task)
 
