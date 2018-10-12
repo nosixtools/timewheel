@@ -12,12 +12,10 @@ type TimeWheel struct {
 	interval          time.Duration
 	ticker            *time.Ticker
 	slots             []*list.List
-	timer             map[interface{}]int
 	timerLock         sync.RWMutex
 	currentPos        int
 	slotNum           int
 	addTaskChannel    chan *task
-	removeTaskChannel chan interface{}
 	stopChannel       chan bool
 	taskRecord        map[interface{}]*task
 	recordLock        sync.RWMutex
@@ -47,11 +45,9 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 	tw := &TimeWheel{
 		interval:          interval,
 		slots:             make([]*list.List, slotNum),
-		timer:             make(map[interface{}]int),
 		currentPos:        0,
 		slotNum:           slotNum,
 		addTaskChannel:    make(chan *task),
-		removeTaskChannel: make(chan interface{}),
 		stopChannel:       make(chan bool),
 		taskRecord:        make(map[interface{}]*task),
 	}
@@ -79,8 +75,6 @@ func (tw *TimeWheel) start() {
 			tw.tickHandler()
 		case task := <-tw.addTaskChannel:
 			tw.addTask(task)
-		case key := <-tw.removeTaskChannel:
-			tw.removeTask(key)
 		case <-tw.stopChannel:
 			tw.ticker.Stop()
 			return
@@ -110,10 +104,14 @@ func (tw *TimeWheel) RemoveTask(key interface{}) error {
 
 	tw.recordLock.RLock()
 	defer tw.recordLock.RUnlock()
-	if tw.taskRecord[key] == nil {
+	task := tw.taskRecord[key]
+
+	if task == nil {
 		return errors.New("task not exists, please check you task key")
+	} else {
+		task.times = 0
+		delete(tw.taskRecord, task.key)
 	}
-	tw.removeTaskChannel <- key
 	return nil
 }
 
@@ -162,43 +160,11 @@ func (tw *TimeWheel) addTask(task *task) {
 
 	tw.slots[pos].PushBack(task)
 
-	tw.timerLock.Lock()
-	defer tw.timerLock.Unlock()
-	tw.timer[task.key] = pos
-
 	//record the task
 	tw.recordLock.Lock()
 	defer tw.recordLock.Unlock()
 	tw.taskRecord[task.key] = task
 
-}
-
-// remove task
-func (tw *TimeWheel) removeTask(key interface{}) {
-
-	tw.timerLock.RLock()
-	defer tw.timerLock.RUnlock()
-	position, ok := tw.timer[key]
-
-	if !ok {
-		return
-	}
-	l := tw.slots[position]
-	for e := l.Front(); e != nil; {
-		task := e.Value.(*task)
-		if task.key == key {
-			tw.timerLock.Unlock()
-			delete(tw.timer, task.key)
-			tw.timerLock.Unlock()
-			l.Remove(e)
-		}
-		e = e.Next()
-	}
-
-	//remove from task record
-	tw.recordLock.Lock()
-	defer tw.recordLock.Unlock()
-	delete(tw.taskRecord, key)
 }
 
 // scan task list and run the task
@@ -214,9 +180,9 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		if task.times == 0 {
 			next := item.Next()
 			l.Remove(item)
-			tw.timerLock.Unlock()
-			delete(tw.timer, task.key)
-			tw.timerLock.Unlock()
+			tw.recordLock.Lock()
+			delete(tw.taskRecord, task.key)
+			tw.recordLock.Unlock()
 			item = next
 			continue
 		}
@@ -231,16 +197,19 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		next := item.Next()
 		l.Remove(item)
 		item = next
-		if task.times > 0 || task.times == -1 {
-			if task.times > 0 {
-				task.times--
-			}
-			tw.addTask(task)
-		} else {
-			tw.timerLock.Unlock()
-			delete(tw.timer, task.key)
-			tw.timerLock.Unlock()
+
+		if task.times == 1 {
+			task.times = 0
+			tw.recordLock.Lock()
+			delete(tw.taskRecord, task.key)
+			tw.recordLock.Unlock()
 		}
+
+		if task.times > 0 {
+			task.times--
+		}
+
+		tw.addTask(task)
 	}
 }
 
