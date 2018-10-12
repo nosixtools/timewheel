@@ -13,6 +13,7 @@ type TimeWheel struct {
 	ticker            *time.Ticker
 	slots             []*list.List
 	timer             map[interface{}]int
+	timerLock         sync.Mutex
 	currentPos        int
 	slotNum           int
 	addTaskChannel    chan *task
@@ -91,6 +92,9 @@ func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{},
 	if interval <= 0 || key == nil || job == nil || times < -1 || times == 0 {
 		return errors.New("illegal task params")
 	}
+	if tw.taskRecord[key] != nil {
+		return errors.New("duplicate task key")
+	}
 	tw.addTaskChannel <- &task{interval: interval, times: times, key: key, taskData: data, job: job}
 	return nil
 }
@@ -152,12 +156,15 @@ func (tw *TimeWheel) addTask(task *task) {
 
 	tw.slots[pos].PushBack(task)
 
+	tw.timerLock.Lock()
+	defer tw.timerLock.Unlock()
 	tw.timer[task.key] = pos
 
 	//record the task
 	tw.recordLock.Lock()
+	defer tw.recordLock.Unlock()
 	tw.taskRecord[task.key] = task
-	tw.recordLock.Unlock()
+
 }
 
 // remove task
@@ -171,10 +178,11 @@ func (tw *TimeWheel) removeTask(key interface{}) {
 	for e := l.Front(); e != nil; {
 		task := e.Value.(*task)
 		if task.key == key {
+			tw.timerLock.Unlock()
 			delete(tw.timer, task.key)
+			tw.timerLock.Unlock()
 			l.Remove(e)
 		}
-
 		e = e.Next()
 	}
 
@@ -197,7 +205,9 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		if task.times == 0 {
 			next := item.Next()
 			l.Remove(item)
+			tw.timerLock.Unlock()
 			delete(tw.timer, task.key)
+			tw.timerLock.Unlock()
 			item = next
 			continue
 		}
@@ -211,14 +221,16 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		go task.job(task.taskData)
 		next := item.Next()
 		l.Remove(item)
-		delete(tw.timer, task.key)
 		item = next
-
 		if task.times > 0 || task.times == -1 {
 			if task.times > 0 {
 				task.times--
 			}
 			tw.addTask(task)
+		} else {
+			tw.timerLock.Unlock()
+			delete(tw.timer, task.key)
+			tw.timerLock.Unlock()
 		}
 	}
 }
