@@ -2,39 +2,43 @@ package timewheel
 
 import (
 	"container/list"
+	"errors"
+	"sync"
 	"time"
 )
 
-// 时间轮结构体
+// time wheel struct
 type TimeWheel struct {
-	interval          time.Duration       //槽位时间单位
-	ticker            *time.Ticker        //
-	slots             []*list.List        //时间轮盘
-	timer             map[interface{}]int //任务位置记录器
-	currentPos        int                 //当前指针位置
-	slotNum           int                 //轮盘数量
-	addTaskChannel    chan task           //新增任务channel
-	removeTaskChannel chan interface{}    //删除任务channel
-	stopChannel       chan bool           //停止定时器channel
+	interval          time.Duration
+	ticker            *time.Ticker
+	slots             []*list.List
+	timer             map[interface{}]int
+	currentPos        int
+	slotNum           int
+	addTaskChannel    chan *task
+	removeTaskChannel chan interface{}
+	stopChannel       chan bool
+	taskRecord        map[interface{}]*task
+	recordLock        sync.Mutex
 }
 
-// Job 任务回调函数
+// Job callback function
 type Job func(TaskData)
 
-// TaskData 回调函数参数
+// TaskData callback params
 type TaskData map[interface{}]interface{}
 
-// task 任务结构体
+// task struct
 type task struct {
-	interval time.Duration //时间间隔
-	times    int           //-1:无限次 >=1:指定运行次数
-	circle   int           //时间轮圈数
-	key      interface{}   //定时器唯一标识
-	job      Job           //回调函数
-	taskData TaskData      //回调函数参数
+	interval time.Duration
+	times    int //-1:no limit >=1:run times
+	circle   int
+	key      interface{}
+	job      Job
+	taskData TaskData
 }
 
-// New 创建时间轮
+// New create a empty time wheel
 func New(interval time.Duration, slotNum int) *TimeWheel {
 	if interval <= 0 || slotNum <= 0 {
 		return nil
@@ -45,7 +49,7 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 		timer:             make(map[interface{}]int),
 		currentPos:        0,
 		slotNum:           slotNum,
-		addTaskChannel:    make(chan task),
+		addTaskChannel:    make(chan *task),
 		removeTaskChannel: make(chan interface{}),
 		stopChannel:       make(chan bool),
 	}
@@ -55,13 +59,13 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 	return tw
 }
 
-// Start 启动时间轮
+// Start start the time wheel
 func (tw *TimeWheel) Start() {
 	tw.ticker = time.NewTicker(tw.interval)
 	go tw.start()
 }
 
-// Stop 停止时间轮
+// Stop stop the time wheel
 func (tw *TimeWheel) Stop() {
 	tw.stopChannel <- true
 }
@@ -72,7 +76,7 @@ func (tw *TimeWheel) start() {
 		case <-tw.ticker.C:
 			tw.tickHandler()
 		case task := <-tw.addTaskChannel:
-			tw.addTask(&task)
+			tw.addTask(task)
 		case key := <-tw.removeTaskChannel:
 			tw.removeTask(key)
 		case <-tw.stopChannel:
@@ -82,22 +86,48 @@ func (tw *TimeWheel) start() {
 	}
 }
 
-func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{}, data TaskData, job Job) {
-	if interval <= 0 || key == nil || job == nil {
-		return
+// AddTask add new task to the time wheel
+func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{}, data TaskData, job Job) error {
+	if interval <= 0 || key == nil || job == nil || times < -1 || times == 0 {
+		return errors.New("illegal task params")
 	}
-	tw.addTaskChannel <- task{interval: interval, times: times, key: key, taskData: data, job: job}
+	tw.addTaskChannel <- &task{interval: interval, times: times, key: key, taskData: data, job: job}
+	return nil
 }
 
-func (tw *TimeWheel) RemoveTask(key interface{}) {
+// RemoveTask remove the task from time wheel
+func (tw *TimeWheel) RemoveTask(key interface{}) error {
 	if key == nil {
-		return
+		return nil
+	}
+	if tw.taskRecord[key] == nil {
+		return errors.New("task not exists, please check you task key")
 	}
 	tw.removeTaskChannel <- key
+	return nil
 }
 
-// 时间轮初始化
+// UpdateTask update task times and data
+func (tw *TimeWheel) UpdateTask(key interface{}, interval time.Duration, taskData TaskData) error {
+	if key == nil {
+		return errors.New("illegal key, please try again")
+	}
+
+	task := tw.taskRecord[key]
+	if task == nil {
+		return errors.New("task not exists, please check you task key")
+	}
+
+	task.taskData = taskData
+	task.interval = interval
+	return nil
+}
+
+// time wheel initialize
 func (tw *TimeWheel) init() {
+
+	tw.taskRecord = make(map[interface{}]*task)
+
 	for i := 0; i < tw.slotNum; i++ {
 		tw.slots[i] = list.New()
 	}
@@ -114,24 +144,29 @@ func (tw *TimeWheel) tickHandler() {
 	}
 }
 
-// 添加任务
+// add task
 func (tw *TimeWheel) addTask(task *task) {
+
 	pos, circle := tw.getPositionAndCircle(task.interval)
 	task.circle = circle
 
 	tw.slots[pos].PushBack(task)
 
 	tw.timer[task.key] = pos
+
+	//record the task
+	tw.recordLock.Lock()
+	tw.taskRecord[task.key] = task
+	tw.recordLock.Unlock()
 }
 
-// 移除任务
+// remove task
 func (tw *TimeWheel) removeTask(key interface{}) {
-	// 获取定时器所在的槽
+
 	position, ok := tw.timer[key]
 	if !ok {
 		return
 	}
-	// 获取槽指向的链表
 	l := tw.slots[position]
 	for e := l.Front(); e != nil; {
 		task := e.Value.(*task)
@@ -142,9 +177,14 @@ func (tw *TimeWheel) removeTask(key interface{}) {
 
 		e = e.Next()
 	}
+
+	//remove from task record
+	tw.recordLock.Lock()
+	delete(tw.taskRecord, key)
+	tw.recordLock.Unlock()
 }
 
-// 扫描链表中任务并执行回调函数
+// scan task list and run the task
 func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 
 	if l == nil {
@@ -174,7 +214,6 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 		delete(tw.timer, task.key)
 		item = next
 
-		//周期任务重新添加到轮盘
 		if task.times > 0 || task.times == -1 {
 			if task.times > 0 {
 				task.times--
@@ -184,7 +223,7 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 	}
 }
 
-// 获取定时器在槽中的位置, 时间轮需要转动的圈数
+// get the task position
 func (tw *TimeWheel) getPositionAndCircle(d time.Duration) (pos int, circle int) {
 	delaySeconds := int(d.Seconds())
 	intervalSeconds := int(tw.interval.Seconds())
