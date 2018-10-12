@@ -50,7 +50,8 @@ func main() {
 	//tw.RemoveTask(key)
 
 	//更新任务参数
-	//tw.UpdateTaskData(key, timewheel.TaskData{"name":"terry"})
+	//time.Sleep(time.Second * 10)
+	//tw.UpdateTask(key, time.Second*3, timewheel.TaskData{"name": "terry"})
 
 	//轮盘停止
 	//tw.Stop()
