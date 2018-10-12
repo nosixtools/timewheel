@@ -13,14 +13,14 @@ type TimeWheel struct {
 	ticker            *time.Ticker
 	slots             []*list.List
 	timer             map[interface{}]int
-	timerLock         sync.Mutex
+	timerLock         sync.RWMutex
 	currentPos        int
 	slotNum           int
 	addTaskChannel    chan *task
 	removeTaskChannel chan interface{}
 	stopChannel       chan bool
 	taskRecord        map[interface{}]*task
-	recordLock        sync.Mutex
+	recordLock        sync.RWMutex
 }
 
 // Job callback function
@@ -93,6 +93,8 @@ func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{},
 	if interval <= 0 || key == nil || job == nil || times < -1 || times == 0 {
 		return errors.New("illegal task params")
 	}
+	tw.recordLock.RLock()
+	defer tw.recordLock.RUnlock()
 	if tw.taskRecord[key] != nil {
 		return errors.New("duplicate task key")
 	}
@@ -105,6 +107,9 @@ func (tw *TimeWheel) RemoveTask(key interface{}) error {
 	if key == nil {
 		return nil
 	}
+
+	tw.recordLock.RLock()
+	defer tw.recordLock.RUnlock()
 	if tw.taskRecord[key] == nil {
 		return errors.New("task not exists, please check you task key")
 	}
@@ -118,7 +123,10 @@ func (tw *TimeWheel) UpdateTask(key interface{}, interval time.Duration, taskDat
 		return errors.New("illegal key, please try again")
 	}
 
+	tw.recordLock.RLock()
+	defer tw.recordLock.RUnlock()
 	task := tw.taskRecord[key]
+
 	if task == nil {
 		return errors.New("task not exists, please check you task key")
 	}
@@ -168,7 +176,10 @@ func (tw *TimeWheel) addTask(task *task) {
 // remove task
 func (tw *TimeWheel) removeTask(key interface{}) {
 
+	tw.timerLock.RLock()
+	defer tw.timerLock.RUnlock()
 	position, ok := tw.timer[key]
+
 	if !ok {
 		return
 	}
@@ -186,8 +197,8 @@ func (tw *TimeWheel) removeTask(key interface{}) {
 
 	//remove from task record
 	tw.recordLock.Lock()
+	defer tw.recordLock.Unlock()
 	delete(tw.taskRecord, key)
-	tw.recordLock.Unlock()
 }
 
 // scan task list and run the task
