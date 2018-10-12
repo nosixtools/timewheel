@@ -53,6 +53,7 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 		addTaskChannel:    make(chan *task),
 		removeTaskChannel: make(chan interface{}),
 		stopChannel:       make(chan bool),
+		taskRecord:        make(map[interface{}]*task),
 	}
 
 	tw.init()
@@ -129,9 +130,6 @@ func (tw *TimeWheel) UpdateTask(key interface{}, interval time.Duration, taskDat
 
 // time wheel initialize
 func (tw *TimeWheel) init() {
-
-	tw.taskRecord = make(map[interface{}]*task)
-
 	for i := 0; i < tw.slotNum; i++ {
 		tw.slots[i] = list.New()
 	}
