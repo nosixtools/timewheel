@@ -9,16 +9,14 @@ import (
 
 // time wheel struct
 type TimeWheel struct {
-	interval          time.Duration
-	ticker            *time.Ticker
-	slots             []*list.List
-	timerLock         sync.RWMutex
-	currentPos        int
-	slotNum           int
-	addTaskChannel    chan *task
-	stopChannel       chan bool
-	taskRecord        map[interface{}]*task
-	recordLock        sync.RWMutex
+	interval       time.Duration
+	ticker         *time.Ticker
+	slots          []*list.List
+	currentPos     int
+	slotNum        int
+	stopChannel    chan bool
+	taskRecord     map[interface{}]*task
+	recordLock     sync.RWMutex
 }
 
 // Job callback function
@@ -43,13 +41,12 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 		return nil
 	}
 	tw := &TimeWheel{
-		interval:          interval,
-		slots:             make([]*list.List, slotNum),
-		currentPos:        0,
-		slotNum:           slotNum,
-		addTaskChannel:    make(chan *task),
-		stopChannel:       make(chan bool),
-		taskRecord:        make(map[interface{}]*task),
+		interval:       interval,
+		slots:          make([]*list.List, slotNum),
+		currentPos:     0,
+		slotNum:        slotNum,
+		stopChannel:    make(chan bool),
+		taskRecord:     make(map[interface{}]*task),
 	}
 
 	tw.init()
@@ -73,8 +70,6 @@ func (tw *TimeWheel) start() {
 		select {
 		case <-tw.ticker.C:
 			tw.tickHandler()
-		case task := <-tw.addTaskChannel:
-			tw.addTask(task)
 		case <-tw.stopChannel:
 			tw.ticker.Stop()
 			return
@@ -87,12 +82,15 @@ func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{},
 	if interval <= 0 || key == nil || job == nil || times < -1 || times == 0 {
 		return errors.New("illegal task params")
 	}
+
 	tw.recordLock.RLock()
-	defer tw.recordLock.RUnlock()
-	if tw.taskRecord[key] != nil {
+	_, ok := tw.taskRecord[key]
+	tw.recordLock.RUnlock()
+	if ok {
 		return errors.New("duplicate task key")
 	}
-	tw.addTaskChannel <- &task{interval: interval, times: times, key: key, taskData: data, job: job}
+
+	tw.addTask(&task{interval: interval, times: times, key: key, taskData: data, job: job})
 	return nil
 }
 
@@ -123,10 +121,10 @@ func (tw *TimeWheel) UpdateTask(key interface{}, interval time.Duration, taskDat
 	}
 
 	tw.recordLock.RLock()
-	defer tw.recordLock.RUnlock()
-	task := tw.taskRecord[key]
+	task, ok := tw.taskRecord[key]
+	tw.recordLock.RUnlock()
 
-	if task == nil {
+	if !ok {
 		return errors.New("task not exists, please check you task key")
 	}
 
@@ -155,6 +153,9 @@ func (tw *TimeWheel) tickHandler() {
 
 // add task
 func (tw *TimeWheel) addTask(task *task) {
+	if task.times == 0 {
+		return
+	}
 
 	pos, circle := tw.getPositionAndCircle(task.interval)
 	task.circle = circle
@@ -165,7 +166,6 @@ func (tw *TimeWheel) addTask(task *task) {
 	tw.recordLock.Lock()
 	defer tw.recordLock.Unlock()
 	tw.taskRecord[task.key] = task
-
 }
 
 // scan task list and run the task
@@ -204,13 +204,12 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 			tw.recordLock.Lock()
 			delete(tw.taskRecord, task.key)
 			tw.recordLock.Unlock()
+		} else {
+			if task.times > 0 {
+				task.times--
+			}
+			tw.addTask(task)
 		}
-
-		if task.times > 0 {
-			task.times--
-		}
-
-		tw.addTask(task)
 	}
 }
 
