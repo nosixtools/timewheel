@@ -14,6 +14,7 @@ type TimeWheel struct {
 	slots          []*list.List
 	currentPos     int
 	slotNum        int
+	addTaskChannel chan *task
 	stopChannel    chan bool
 	taskRecord     map[interface{}]*task
 	recordLock     sync.RWMutex
@@ -45,6 +46,7 @@ func New(interval time.Duration, slotNum int) *TimeWheel {
 		slots:          make([]*list.List, slotNum),
 		currentPos:     0,
 		slotNum:        slotNum,
+		addTaskChannel: make(chan *task),
 		stopChannel:    make(chan bool),
 		taskRecord:     make(map[interface{}]*task),
 	}
@@ -70,6 +72,8 @@ func (tw *TimeWheel) start() {
 		select {
 		case <-tw.ticker.C:
 			tw.tickHandler()
+		case task := <- tw.addTaskChannel:
+			tw.addTask(task)
 		case <-tw.stopChannel:
 			tw.ticker.Stop()
 			return
@@ -90,7 +94,7 @@ func (tw *TimeWheel) AddTask(interval time.Duration, times int, key interface{},
 		return errors.New("duplicate task key")
 	}
 
-	tw.addTask(&task{interval: interval, times: times, key: key, taskData: data, job: job})
+	tw.addTaskChannel <- &task{interval: interval, times: times, key: key, taskData: data, job: job}
 	return nil
 }
 
