@@ -109,6 +109,7 @@ func (tw *TimeWheel) RemoveTask(key interface{}) error {
 	if task == nil {
 		return errors.New("task not exists, please check you task key")
 	} else {
+		// lazy remove task
 		task.times = 0
 		delete(tw.taskRecord, task.key)
 	}
