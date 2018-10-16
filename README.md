@@ -1,6 +1,6 @@
 # timewheel
 
-Golang实现的时间轮
+golang timewheel
 
 [![Go Report Card](https://goreportcard.com/badge/github.com/nosixtools/timewheel)](https://goreportcard.com/report/github.com/nosixtools/timewheel)
 
@@ -40,23 +40,21 @@ func main() {
 	//参数：key 任务唯一标识符 用户更新任务和删除任务
 	//参数：taskData 回调函数参数
 	//参数：job 回调函数
-	tw.AddTask(time.Second*2, -1, key,
-		timewheel.TaskData{"name": "john"},
+	tw.AddTask(time.Second, -1, key, timewheel.TaskData{"name": "john"},
 		func(params timewheel.TaskData) {
 			fmt.Println(time.Now().Unix(), params["name"])
 		})
 
-	//删除定时任务
-	//tw.RemoveTask(key)
-
 	//更新任务参数
-	//time.Sleep(time.Second * 10)
-	//tw.UpdateTask(key, time.Second*3, timewheel.TaskData{"name": "terry"})
+	time.Sleep(time.Second * 10)
+	tw.UpdateTask(key, time.Second*3, timewheel.TaskData{"name": "terry"})
+
+	//删除定时任务
+	time.Sleep(time.Second * 10)
+	tw.RemoveTask(key)
 
 	//轮盘停止
-	//tw.Stop()
-
-	select {}
+	tw.Stop()
 }
 
 ```
