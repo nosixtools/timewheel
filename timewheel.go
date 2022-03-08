@@ -75,6 +75,11 @@ func (tw *TimeWheel) start() {
 			tw.addTask(task)
 		case <-tw.stopChannel:
 			tw.ticker.Stop()
+			//clean resource
+			tw.taskRecord.Range(func(key, value interface{}) bool {
+				tw.taskRecord.Delete(key)
+				return true
+			})
 			return
 		}
 	}
@@ -209,7 +214,7 @@ func (tw *TimeWheel) scanAddRunTask(l *list.List) {
 func (tw *TimeWheel) getPositionAndCircle(d time.Duration) (pos int, circle int) {
 	delaySeconds := int(d.Seconds())
 	intervalSeconds := int(tw.interval.Seconds())
-	circle = int(delaySeconds / intervalSeconds / tw.slotNum)
-	pos = int(tw.currentPos+delaySeconds/intervalSeconds) % tw.slotNum
+	circle = delaySeconds / intervalSeconds / tw.slotNum
+	pos = (tw.currentPos + delaySeconds/intervalSeconds) % tw.slotNum
 	return
 }
